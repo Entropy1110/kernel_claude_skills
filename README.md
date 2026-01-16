@@ -1,4 +1,4 @@
-# Claude Skills for Kernel vulnerability analysis
+# Claude Skills for Kernel (mostly ARM Mali GPU Driver) vulnerability analysis
 
 Static vulnerability analysis pipeline for Linux kernel drivers and C/C++ applications, designed to work with Claude Code.
 
@@ -7,8 +7,8 @@ Static vulnerability analysis pipeline for Linux kernel drivers and C/C++ applic
 ### 1. Clone and Setup
 
 ```bash
-git clone <repository-url>
-cd mali-static-ai
+git clone https://github.com/Entropy1110/kernel_claude_skills.git
+cd kernel_claude_skills
 ./setup.sh
 ```
 
