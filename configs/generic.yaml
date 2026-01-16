@@ -1,0 +1,150 @@
+framework:
+  name: "generic"
+  display_name: "Generic Kernel Code"
+  description: "General-purpose kernel driver and subsystem code"
+
+lifecycle:
+  stages:
+    - name: "initialization"
+      functions: ["init", "probe", "register"]
+      description: "Module and device initialization"
+
+    - name: "runtime"
+      functions: ["read", "write", "ioctl", "open", "release"]
+      description: "Normal operations"
+
+    - name: "cleanup"
+      functions: ["exit", "remove", "unregister", "release"]
+      description: "Resource cleanup"
+
+  guarantees:
+    - "Kernel ensures proper reference counting for shared objects"
+    - "Cleanup callbacks are final - no access after return"
+    - "Reference counted objects managed via kref_get/kref_put"
+
+entrypoint_patterns:
+  file_ops:
+    - regex: "\\.open\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.release\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.read\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.write\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.unlocked_ioctl\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.mmap\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+
+indicator_patterns:
+  user_control:
+    - "\\bcopy_from_user\\b"
+    - "\\bcopy_to_user\\b"
+    - "\\bget_user\\b"
+    - "\\bput_user\\b"
+    - "\\bmemdup_user\\b"
+    - "\\bstrncpy_from_user\\b"
+    - "\\b__user\\b"
+
+  lifetime:
+    - "\\bkmalloc\\b"
+    - "\\bkzalloc\\b"
+    - "\\bkcalloc\\b"
+    - "\\bkfree\\b"
+    - "\\bkvfree\\b"
+    - "\\bvfree\\b"
+    - "\\bkref_(get|put)\\b"
+    - "\\brefcount_(inc|dec|add|sub)\\b"
+    - "\\bxa_(store|erase|load)\\b"
+    - "\\bidr_(alloc|remove|find)\\b"
+    - "\\blist_(add|del|del_init)\\b"
+
+  concurrency:
+    - "\\bspin_lock\\b"
+    - "\\bspin_unlock\\b"
+    - "\\bmutex_lock\\b"
+    - "\\bmutex_unlock\\b"
+    - "\\brwlock\\b"
+    - "\\brcu_(read_lock|read_unlock)\\b"
+    - "\\bwait_event\\b"
+    - "\\batomic_\\w+\\b"
+
+  guards:
+    - "\\baccess_ok\\b"
+    - "\\bIS_ERR\\b"
+    - "\\bIS_ERR_OR_NULL\\b"
+    - "\\bWARN_ON\\b"
+    - "\\bBUG_ON\\b"
+    - "\\bif\\s*\\("
+
+false_positive_rules:
+  - pattern: "(no security vulnerability.*ext4_resize_begin|ext4_resize_begin.*no security vulnerability)"
+    reason: "Resize gate checks (capability + filesystem state) indicate no actionable vulnerability."
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "(ext4_group_extend.*overflow.*protection|overflow.*protection.*ext4_group_extend)"
+    reason: "Overflow checks and device size validation indicate defensive handling."
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "(ext4_mb_pa_free.*BUG_ON|BUG_ON.*ext4_mb_pa_free)"
+    reason: "Internal invariant checks (BUG_ON) gate this free path."
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "(ext4_group_add.*(iput|inode reference leak)|(iput|inode reference leak).*ext4_group_add)"
+    reason: "Error path uses iput(), which is NULL-safe; leak claim is likely false."
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "(ext4_ioctl_group_add.*resource leak|resource leak.*ext4_ioctl_group_add)"
+    reason: "Resize begin/end and write-mount operations are balanced on all paths."
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "(ext4_mb_release_inode_pa.*integrity|integrity.*ext4_mb_release_inode_pa)"
+    reason: "Consistency/integrity checks during PA release are not security flaws."
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "(ext4_ioctl_getuuid.*fixed size|fixed size.*ext4_ioctl_getuuid)"
+    reason: "Fixed-size struct copy with length validation; no overflow exposure."
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "(ext4_file_open.*user input|user input.*ext4_file_open)"
+    reason: "Open path does not process user-controlled buffers or perform unsafe allocation."
+    auto_downgrade: true
+    target_risk: "low"
+
+prompt_context:
+  role: "Linux kernel static analysis reviewer"
+
+  framework_knowledge: |
+    ## General kernel code patterns
+
+    ### Memory management
+    - Allocation: kmalloc/kzalloc/kcalloc
+    - Free: kfree/kvfree
+    - Reference counting: kref_get/kref_put
+    - Note: always check for NULL on allocation failure
+
+    ### Concurrency control
+    - Spinlock: spin_lock/spin_unlock (short critical section, no sleep)
+    - Mutex: mutex_lock/mutex_unlock (long critical section, sleep allowed)
+    - RCU: rcu_read_lock/rcu_read_unlock (read-optimized)
+    - Important: ensure lock symmetry on all paths
+
+    ### User input handling
+    - copy_from_user/copy_to_user: always check return values
+    - access_ok: validate user pointers
+    - Security: validate user-supplied sizes
+
+    ### Error handling
+    - IS_ERR/IS_ERR_OR_NULL: check pointer errors
+    - PTR_ERR: extract error codes
+    - Principle: clean up properly before returning on error
+
+  false_positive_examples: []

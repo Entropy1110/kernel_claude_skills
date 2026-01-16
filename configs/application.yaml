@@ -1,0 +1,261 @@
+framework:
+  name: "application"
+  display_name: "Application Code (User-space)"
+  description: "General-purpose application security analysis for C/C++ user-space code"
+
+lifecycle:
+  stages:
+    - name: "initialization"
+      functions: ["main", "init", "constructor", "startup"]
+      description: "Application startup and initialization"
+
+    - name: "runtime"
+      functions: ["process", "handle", "parse", "execute", "run"]
+      description: "Normal application operations"
+
+    - name: "cleanup"
+      functions: ["cleanup", "destructor", "shutdown", "exit", "free_resources"]
+      description: "Resource cleanup and application exit"
+
+  guarantees:
+    - "malloc/free pairs should balance - every allocation has corresponding free"
+    - "File descriptors should be closed after use"
+    - "Pointers should be validated before dereferencing"
+    - "Bounds checking required for array/buffer access"
+    - "Return values from critical functions should be checked"
+
+entrypoint_patterns:
+  main:
+    - regex: "\\bmain\\s*\\("
+      field: "entry_point"
+      name_pattern: "main"
+
+  network:
+    - regex: "\\b(accept|recv|recvfrom|read)\\s*\\("
+      field: "network_input"
+    - regex: "\\b(send|sendto|write)\\s*\\("
+      field: "network_output"
+
+  file_io:
+    - regex: "\\b(fopen|open|fread|read)\\s*\\("
+      field: "file_input"
+    - regex: "\\b(fwrite|write)\\s*\\("
+      field: "file_output"
+
+  parsing:
+    - regex: "\\b(parse|process|decode|deserialize)\\w*\\s*\\("
+      field: "parser_function"
+
+  command:
+    - regex: "\\b(system|exec[vl]?p?|popen)\\s*\\("
+      field: "command_execution"
+
+indicator_patterns:
+  user_control:
+    - "\\bargv\\b"
+    - "\\bargc\\b"
+    - "\\bgetenv\\b"
+    - "\\bfgets\\b"
+    - "\\bgets\\b"
+    - "\\bscanf\\b"
+    - "\\bread\\b"
+    - "\\brecv\\b"
+    - "\\brecvfrom\\b"
+    - "\\bgetline\\b"
+
+  memory_unsafe:
+    - "\\bstrcpy\\b"
+    - "\\bstrcat\\b"
+    - "\\bsprintf\\b"
+    - "\\bvsprintf\\b"
+    - "\\bgets\\b"
+    - "\\bmemcpy\\b"
+    - "\\bmemmove\\b"
+    - "\\bbcopy\\b"
+
+  memory_management:
+    - "\\bmalloc\\b"
+    - "\\bcalloc\\b"
+    - "\\brealloc\\b"
+    - "\\bfree\\b"
+    - "\\bnew\\b"
+    - "\\bdelete\\b"
+    - "\\bdelete\\[\\]"
+    - "\\balloca\\b"
+
+  dangerous_functions:
+    - "\\bsystem\\b"
+    - "\\bexec[vl]?p?\\b"
+    - "\\bpopen\\b"
+    - "\\batoi\\b"
+    - "\\batol\\b"
+    - "\\bstrtok\\b"
+
+  format_string:
+    - "\\bprintf\\b"
+    - "\\bfprintf\\b"
+    - "\\bsprintf\\b"
+    - "\\bsnprintf\\b"
+    - "\\bvprintf\\b"
+    - "\\bvfprintf\\b"
+    - "\\bvsprintf\\b"
+    - "\\bvsnprintf\\b"
+
+  integer_operations:
+    - "\\batoi\\b"
+    - "\\batol\\b"
+    - "\\batoll\\b"
+    - "\\bstrtol\\b"
+    - "\\bstrtoul\\b"
+    - "\\bstrtoll\\b"
+
+  concurrency:
+    - "\\bpthread_create\\b"
+    - "\\bpthread_mutex_lock\\b"
+    - "\\bpthread_mutex_unlock\\b"
+    - "\\bpthread_cond_wait\\b"
+    - "\\bsem_wait\\b"
+    - "\\bsem_post\\b"
+
+  file_operations:
+    - "\\bfopen\\b"
+    - "\\bopen\\b"
+    - "\\bfclose\\b"
+    - "\\bclose\\b"
+    - "\\bfread\\b"
+    - "\\bfwrite\\b"
+    - "\\bread\\b"
+    - "\\bwrite\\b"
+
+  guards:
+    - "\\bassert\\b"
+    - "\\bif\\s*\\("
+    - "\\bcheck\\b"
+    - "\\bvalidate\\b"
+    - "\\bverify\\b"
+    - "\\b!=\\s*NULL\\b"
+    - "\\b==\\s*NULL\\b"
+
+false_positive_rules:
+  - pattern: "malloc.*sizeof"
+    reason: "malloc with sizeof is common safe pattern if size is validated"
+    auto_downgrade: false
+    target_risk: "medium"
+
+  - pattern: "snprintf.*sizeof"
+    reason: "snprintf with sizeof provides bounds checking"
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "strncpy.*sizeof"
+    reason: "strncpy with sizeof is safer than strcpy"
+    auto_downgrade: true
+    target_risk: "low"
+
+prompt_context:
+  role: "애플리케이션 보안 정적 분석 전문가"
+
+  framework_knowledge: |
+    ## Application Security 핵심 패턴
+
+    ### 메모리 안전성
+    - **Unsafe 함수**: strcpy, strcat, sprintf, gets → 버퍼 오버플로우 위험
+    - **Safe 대안**: strncpy, strncat, snprintf, fgets
+    - **malloc/free**: 모든 할당은 해제되어야 함 (메모리 누수 방지)
+    - **Use-after-free**: free 후 포인터 재사용 금지
+
+    ### 입력 검증
+    - **사용자 입력**: argv, stdin, network input → 항상 검증 필요
+    - **환경 변수**: getenv() 결과 → NULL 체크 및 길이 검증
+    - **Format String**: printf 계열 함수에 사용자 입력 직접 사용 금지
+
+    ### 정수 오버플로우
+    - atoi/atol: 에러 처리 없음 → strtol/strtoul 사용 권장
+    - 크기 계산: 곱셈 전 오버플로우 체크 필요
+    - 배열 인덱스: 범위 검증 필수
+
+    ### Command Injection
+    - system(): 사용자 입력 포함 시 위험
+    - exec 계열: 인자 검증 필요
+    - 셸 메타문자 이스케이핑 필수
+
+    ### Race Conditions
+    - TOCTOU (Time-of-check, Time-of-use)
+    - 파일 시스템 경쟁: stat → open 사이 변경 가능
+    - 멀티스레드: 공유 자원 접근 시 동기화 필요
+
+    ### File Operations
+    - 파일 디스크립터 누수: open 후 close 확인
+    - Path traversal: "../" 패턴 검증
+    - 권한 검증: 민감한 파일 접근 시 권한 체크
+
+  false_positive_examples:
+    - title: "snprintf with sizeof - 안전한 패턴"
+      code: |
+        char buf[256];
+        snprintf(buf, sizeof(buf), "Hello %s", user_input);
+      wrong_analysis: "sprintf 계열 함수 사용으로 버퍼 오버플로우 위험"
+      correct_analysis: "snprintf는 크기 제한이 있고 sizeof로 정확한 크기 전달, 안전함"
+      key_insight: "snprintf는 bounds-checking이 있는 안전한 함수"
+
+    - title: "malloc with immediate check - 안전한 패턴"
+      code: |
+        void *ptr = malloc(size);
+        if (!ptr) {
+            return -ENOMEM;
+        }
+        // use ptr
+        free(ptr);
+      wrong_analysis: "malloc 실패 시 NULL 포인터 역참조 위험"
+      correct_analysis: "malloc 직후 NULL 체크하여 에러 처리, 사용 후 free 호출"
+      key_insight: "즉시 NULL 체크와 에러 처리가 있으면 안전"
+
+    - title: "strncpy with explicit null termination"
+      code: |
+        char dest[32];
+        strncpy(dest, src, sizeof(dest) - 1);
+        dest[sizeof(dest) - 1] = '\0';
+      wrong_analysis: "strncpy는 null termination 보장 안함"
+      correct_analysis: "명시적으로 마지막 바이트를 null로 설정, 안전함"
+      key_insight: "strncpy 후 명시적 null termination은 권장 패턴"
+
+vulnerability_classes:
+  - name: "CWE-120: Buffer Overflow"
+    indicators: ["strcpy", "strcat", "sprintf", "gets"]
+    severity: "critical"
+    description: "Unchecked buffer operations leading to overflow"
+
+  - name: "CWE-416: Use After Free"
+    indicators: ["free", "delete"]
+    severity: "high"
+    description: "Accessing memory after it has been freed"
+
+  - name: "CWE-134: Format String"
+    indicators: ["printf", "sprintf", "fprintf"]
+    severity: "high"
+    description: "User-controlled format string"
+
+  - name: "CWE-190: Integer Overflow"
+    indicators: ["atoi", "atol", "malloc", "sizeof"]
+    severity: "medium"
+    description: "Integer overflow in size calculations"
+
+  - name: "CWE-78: OS Command Injection"
+    indicators: ["system", "exec", "popen"]
+    severity: "critical"
+    description: "Unvalidated user input in system commands"
+
+  - name: "CWE-367: TOCTOU Race Condition"
+    indicators: ["stat", "access", "open"]
+    severity: "medium"
+    description: "Time-of-check to time-of-use race"
+
+  - name: "CWE-401: Memory Leak"
+    indicators: ["malloc", "calloc", "realloc"]
+    severity: "low"
+    description: "Allocated memory not freed"
+
+  - name: "CWE-476: NULL Pointer Dereference"
+    indicators: ["malloc", "calloc", "fopen"]
+    severity: "medium"
+    description: "Dereferencing pointer without NULL check"

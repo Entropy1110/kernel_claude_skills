@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "ida-pro": {
+      "command": "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+      "args": [
+        "-m",
+        "ida_pro_mcp.server",
+        "--ida-rpc",
+        "http://127.0.0.1:13337"
+      ]
+    }
+  }
+}

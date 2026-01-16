@@ -1,0 +1,212 @@
+framework:
+  name: "drm"
+  display_name: "DRM/GPU Drivers"
+  description: "Direct Rendering Manager graphics drivers"
+
+lifecycle:
+  stages:
+    - name: "initialization"
+      functions: ["open", "driver_load", "probe"]
+      description: "Driver and device initialization"
+
+    - name: "runtime"
+      functions: ["ioctl", "mmap", "poll", "read", "write"]
+      description: "Normal operations with userspace"
+
+    - name: "cleanup"
+      functions: ["postclose", "release", "lastclose"]
+      description: "Resource cleanup and teardown"
+
+  guarantees:
+    - "postclose is final callback before file structure is freed"
+    - "Framework prevents access to file structure after postclose returns"
+    - "driver_priv is valid from open through postclose"
+    - "Reference counting (kref_get/kref_put) ensures object lifetime"
+    - "debugfs_create failures are safe - framework handles NULL returns"
+
+entrypoint_patterns:
+  ioctl:
+    - regex: "DRM_IOCTL_DEF_DRV\\([^,]+,\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "ioctl_handler"
+    - regex: "\\.unlocked_ioctl\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.compat_ioctl\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+
+  file_ops:
+    - regex: "\\.open\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.release\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.mmap\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.poll\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.read\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.write\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.show_fdinfo\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+
+  driver:
+    - regex: "\\.open\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "drm_driver"
+    - regex: "\\.postclose\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "drm_driver"
+    - regex: "\\.lastclose\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "drm_driver"
+
+  debugfs:
+    - regex: "debugfs_create"
+      field: "debugfs"
+      name_pattern: "*debugfs*"
+
+indicator_patterns:
+  user_control:
+    - "\\bcopy_from_user\\b"
+    - "\\bcopy_to_user\\b"
+    - "\\bget_user\\b"
+    - "\\bput_user\\b"
+    - "\\bmemdup_user\\b"
+    - "\\bstrncpy_from_user\\b"
+    - "\\b__user\\b"
+    - "\\buser_ptr\\b"
+    - "\\bvm_pgoff\\b"
+    - "\\bdrm_ioctl\\b"
+
+  lifetime:
+    - "\\bkmalloc\\b"
+    - "\\bkzalloc\\b"
+    - "\\bkcalloc\\b"
+    - "\\bkfree\\b"
+    - "\\bkvfree\\b"
+    - "\\bvfree\\b"
+    - "\\bkref_(get|put)\\b"
+    - "\\brefcount_(inc|dec|add|sub)\\b"
+    - "\\bdrm_gem_object_(get|put|lookup)\\b"
+    - "\\bdrm_gem_(shmem_)?free_object\\b"
+    - "\\bdrm_gem_\\w+\\b"
+    - "\\bxa_(store|erase|load)\\b"
+    - "\\bidr_(alloc|remove|find)\\b"
+    - "\\blist_(add|del|del_init)\\b"
+    - "\\bdma_buf\\b"
+    - "\\bbo_\\w+\\b"
+
+  concurrency:
+    - "\\bspin_lock\\b"
+    - "\\bspin_unlock\\b"
+    - "\\bmutex_lock\\b"
+    - "\\bmutex_unlock\\b"
+    - "\\brwlock\\b"
+    - "\\brcu_(read_lock|read_unlock|assign_pointer|dereference)\\b"
+    - "\\bwait_event\\b"
+    - "\\bcompletion\\b"
+    - "\\bfence\\b"
+    - "\\bsync\\b"
+    - "\\batomic_\\w+\\b"
+
+  guards:
+    - "\\baccess_ok\\b"
+    - "\\bIS_ERR\\b"
+    - "\\bIS_ERR_OR_NULL\\b"
+    - "\\bWARN_ON\\b"
+    - "\\bBUG_ON\\b"
+    - "\\bdrm_dev_enter\\b"
+    - "\\bdrm_dev_is_unplugged\\b"
+    - "\\bif\\s*\\("
+
+false_positive_rules:
+  - pattern: "postclose.*driver_priv.*NULL"
+    reason: "DRM postclose is the final stage; NULLing driver_priv is unnecessary"
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "release.*\\(.*\\).*free.*NULL"
+    reason: "Release callbacks are the final lifecycle stage"
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "debugfs_create.*NULL.*check"
+    reason: "debugfs APIs are safe even when creation fails"
+    auto_downgrade: true
+    target_risk: "info"
+
+  - pattern: "fdinfo.*driver_priv.*NULL"
+    reason: "fdinfo callbacks run only while the file is valid"
+    auto_downgrade: true
+    target_risk: "low"
+
+prompt_context:
+  role: "Linux DRM/GPU driver static analysis expert"
+
+  framework_knowledge: |
+    ## DRM/Kernel Framework Checklist
+
+    ### DRM file operation lifecycle (strict order)
+    1. **open** -> allocate driver_priv
+    2. **ioctl/mmap/poll** -> normal operations (use driver_priv)
+    3. **postclose** -> cleanup and free driver_priv (final stage)
+    4. **file struct freed** -> done by the kernel; no access afterward
+
+    Important: access to the file struct after postclose is blocked by the framework.
+
+    ### Reference counting rules
+    - `kref_get()` / `kref_put()` must be paired
+    - Check `kref_put()` return value: true means the object was freed
+    - Do not use a pointer after `kref_put()`
+
+    ### Locking patterns
+    - `spin_lock()` / `spin_unlock()` must be balanced on all paths
+    - `mutex_lock()` / `mutex_unlock()` must be balanced on all paths
+    - Ensure locks are released on early returns
+
+    ### GEM/BO object lifecycle
+    - `drm_gem_object_get()` / `drm_gem_object_put()`: reference count management
+    - `drm_gem_object_lookup()`: increments ref, must put after use
+    - Userspace handle access is internally reference-counted
+
+    ### debugfs
+    - `debugfs_create_*()` failures are safe
+    - NULL checks are optional per kernel policy
+    - No security impact: debugging-only interface
+
+  false_positive_examples:
+    - title: "Framework lifecycle misunderstanding"
+      code: |
+        static void driver_release(struct device *dev) {
+            struct my_device *mdev = to_my_device(dev);
+            kfree(mdev->buffer);
+            kfree(mdev);
+            // Is the dev pointer still usable here?
+        }
+      wrong_analysis: "dev pointer should be set to NULL to avoid a dangling pointer"
+      correct_analysis: "release() is the final teardown stage; callers cannot access it afterward, so NULLing is unnecessary"
+      key_insight: "verify when the framework guarantees no further access"
+
+    - title: "Normal lock release pattern"
+      code: |
+        void process_queue(struct queue *q) {
+            spin_lock(&q->lock);
+            if (list_empty(&q->list)) {
+                spin_unlock(&q->lock);
+                return;  // early return
+            }
+            // ... work ...
+            spin_unlock(&q->lock);
+        }
+      wrong_analysis: "early return might skip unlocking"
+      correct_analysis: "all paths release the lock"
+      key_insight: "track lock symmetry on every path"
+
+    - title: "DRM file operation lifecycle"
+      code: |
+        static void drm_postclose(struct drm_device *dev, struct drm_file *file) {
+            struct my_file *priv = file->driver_priv;
+            cleanup_resources(priv);
+            kfree(priv);
+            // file->driver_priv is not set to NULL
+        }
+      wrong_analysis: "driver_priv dangling pointer leads to use-after-free"
+      correct_analysis: "postclose is the final DRM file callback; the file struct is freed afterward"
+      key_insight: "postclose is the final cleanup stage in the DRM framework"

@@ -1,0 +1,108 @@
+{
+  "mode": "claude_code",
+  "targets": {
+    "_comment": "Configure your default analysis targets here",
+    "default_repo": "/path/to/your/linux/kernel",
+    "default_scope": "drivers/gpu/drm/your-driver",
+    "default_framework": "drm",
+    "presets": {
+      "panthor": {
+        "repo": "/path/to/linux",
+        "scope": "drivers/gpu/drm/panthor",
+        "framework": "drm"
+      },
+      "mali": {
+        "repo": "/path/to/linux",
+        "scope": "drivers/gpu/arm/midgard",
+        "framework": "mali"
+      },
+      "example_app": {
+        "repo": "/path/to/your/app",
+        "scope": "src",
+        "framework": "application"
+      }
+    }
+  },
+  "modes": {
+    "claude_code": {
+      "description": "Use Claude Code only - all analysis done by Claude Code itself",
+      "stage_provider": {
+        "triage": "claude_code",
+        "deep_dive": "claude_code",
+        "self_critique": "claude_code",
+        "classify_findings": "claude_code",
+        "false_positive_classifier": "claude_code",
+        "iterative_followup": "claude_code"
+      }
+    },
+    "hybrid": {
+      "description": "Use local Ollama for triage, OpenRouter/Claude for deep analysis",
+      "stage_provider": {
+        "triage": "ollama",
+        "deep_dive": "openrouter",
+        "self_critique": "openrouter",
+        "classify_findings": "openrouter",
+        "false_positive_classifier": "openrouter",
+        "iterative_followup": "openrouter"
+      }
+    },
+    "local_only": {
+      "description": "Use only local Ollama - no external API calls",
+      "stage_provider": {
+        "triage": "ollama",
+        "deep_dive": "ollama",
+        "self_critique": "ollama",
+        "classify_findings": "ollama",
+        "false_positive_classifier": "ollama",
+        "iterative_followup": "ollama"
+      }
+    },
+    "openrouter_only": {
+      "description": "Use only OpenRouter API for all stages",
+      "stage_provider": {
+        "triage": "openrouter",
+        "deep_dive": "openrouter",
+        "self_critique": "openrouter",
+        "classify_findings": "openrouter",
+        "false_positive_classifier": "openrouter",
+        "iterative_followup": "openrouter"
+      }
+    }
+  },
+  "providers": {
+    "claude_code": {
+      "description": "Claude Code handles analysis directly in conversation",
+      "cost_per_1k_input": 0,
+      "cost_per_1k_output": 0
+    },
+    "ollama": {
+      "base_url": "http://localhost:11434",
+      "model": "qwen2.5-coder:32b",
+      "timeout": 300,
+      "temperature": 0,
+      "cost_per_1k_input": 0,
+      "cost_per_1k_output": 0
+    },
+    "openrouter": {
+      "base_url": "https://openrouter.ai/api/v1",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "model": "anthropic/claude-sonnet-4",
+      "heavy_model": "anthropic/claude-opus-4",
+      "timeout": 600,
+      "temperature": 0,
+      "cost_per_1k_input": 0.003,
+      "cost_per_1k_output": 0.015
+    }
+  },
+  "analysis": {
+    "default_framework": "drm",
+    "max_batch_size": 3,
+    "max_deep_dive_targets": 8,
+    "max_followup_iterations": 2,
+    "max_questions_per_round": 5
+  },
+  "state": {
+    "checkpoint_path": ".claude/state/mali-state/checkpoints.db",
+    "cost_log_path": ".claude/state/mali-state/cost_log.json"
+  }
+}

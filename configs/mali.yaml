@@ -1,0 +1,227 @@
+framework:
+  name: "mali"
+  display_name: "Mali GPU Drivers (kbase/midgard)"
+  description: "ARM Mali GPU drivers including Midgard, Bifrost, and Valhall"
+
+lifecycle:
+  stages:
+    - name: "initialization"
+      functions: ["kbase_open", "kbase_device_init", "kbase_context_init"]
+      description: "Device and context initialization"
+
+    - name: "runtime"
+      functions: ["kbase_ioctl", "kbase_mmap", "kbase_api_*"]
+      description: "Normal operations with userspace"
+
+    - name: "cleanup"
+      functions: ["kbase_release", "kbase_context_term", "kbase_device_term"]
+      description: "Resource cleanup and teardown"
+
+  guarantees:
+    - "kbase_context is valid from kbase_open through kbase_release"
+    - "kbase_file wraps file descriptor state"
+    - "Reference counting via kbase_*_get/kbase_*_put ensures object lifetime"
+    - "Memory regions tracked via kbase_va_region with proper refcounting"
+    - "CSF queues and queue groups have explicit lifecycle management"
+
+entrypoint_patterns:
+  ioctl:
+    - regex: "KBASE_IOCTL_[A-Z_]+"
+      field: "kbase_ioctl"
+    - regex: "^\\s*static\\s+int\\s+(kbase_api_[a-z_]+)\\s*\\("
+      field: "kbase_api"
+      func_group: 1
+    - regex: "\\.unlocked_ioctl\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.compat_ioctl\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+
+  file_ops:
+    - regex: "\\.open\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.release\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.mmap\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.poll\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.read\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+    - regex: "\\.write\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "file_operations"
+
+  vm_ops:
+    - regex: "\\.open\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "vm_operations_struct"
+    - regex: "\\.close\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "vm_operations_struct"
+    - regex: "\\.fault\\s*=\\s*([A-Za-z_][A-Za-z0-9_]*)"
+      field: "vm_operations_struct"
+
+  debugfs:
+    - regex: "debugfs_create"
+      field: "debugfs"
+    - regex: "^\\s*static\\s+int\\s+(kbasep?_[a-z_]+_debugfs_[a-z_]+)\\s*\\("
+      field: "debugfs"
+      func_group: 1
+
+  csf:
+    - regex: "kbase_csf_[a-z_]+_ioctl"
+      field: "csf_ioctl"
+    - regex: "kbase_csf_queue_[a-z_]+"
+      field: "csf_queue"
+    - regex: "kbase_csf_csg_[a-z_]+"
+      field: "csf_csg"
+
+indicator_patterns:
+  user_control:
+    - "\\bcopy_from_user\\b"
+    - "\\bcopy_to_user\\b"
+    - "\\bget_user\\b"
+    - "\\bput_user\\b"
+    - "\\bmemdup_user\\b"
+    - "\\bstrncpy_from_user\\b"
+    - "\\b__user\\b"
+    - "\\buser_ptr\\b"
+    - "\\bkbase_ioctl\\b"
+    - "\\bkbase_api_\\w+\\b"
+    - "\\bKBASE_IOCTL\\b"
+
+  lifetime:
+    - "\\bkmalloc\\b"
+    - "\\bkzalloc\\b"
+    - "\\bkcalloc\\b"
+    - "\\bkfree\\b"
+    - "\\bkvfree\\b"
+    - "\\bvfree\\b"
+    - "\\bkref_(get|put)\\b"
+    - "\\brefcount_(inc|dec|add|sub)\\b"
+    - "\\bkbase_mem_(alloc|free)\\b"
+    - "\\bkbase_va_region\\b"
+    - "\\bkbase_gpu_vm_(lock|unlock)\\b"
+    - "\\bkbase_context_(get|put)\\b"
+    - "\\bkbase_file_(get|put)\\b"
+    - "\\bkbase_jd_atom\\b"
+    - "\\bkbase_queue_group\\b"
+    - "\\blist_(add|del|del_init)\\b"
+    - "\\bdma_buf\\b"
+
+  concurrency:
+    - "\\bspin_lock\\b"
+    - "\\bspin_unlock\\b"
+    - "\\bmutex_lock\\b"
+    - "\\bmutex_unlock\\b"
+    - "\\brwlock\\b"
+    - "\\brcu_(read_lock|read_unlock|assign_pointer|dereference)\\b"
+    - "\\bwait_event\\b"
+    - "\\bcompletion\\b"
+    - "\\bfence\\b"
+    - "\\batomic_\\w+\\b"
+    - "\\bkbase_csf_scheduler_lock\\b"
+    - "\\bkbase_gpu_vm_lock\\b"
+    - "\\bkbase_hwaccess_lock\\b"
+
+  guards:
+    - "\\baccess_ok\\b"
+    - "\\bIS_ERR\\b"
+    - "\\bIS_ERR_OR_NULL\\b"
+    - "\\bWARN_ON\\b"
+    - "\\bBUG_ON\\b"
+    - "\\bif\\s*\\("
+    - "\\bkbase_ctx_flag\\b"
+    - "\\bKBASE_CTX_FLAG\\b"
+
+false_positive_rules:
+  - pattern: "kbase_release.*context.*NULL"
+    reason: "kbase_release is the final teardown stage"
+    auto_downgrade: true
+    target_risk: "low"
+
+  - pattern: "debugfs_create.*NULL.*check"
+    reason: "debugfs APIs are safe even when creation fails"
+    auto_downgrade: true
+    target_risk: "info"
+
+  - pattern: "kbase_context_term.*kfree"
+    reason: "context termination is final cleanup"
+    auto_downgrade: true
+    target_risk: "low"
+
+prompt_context:
+  role: "Linux Mali GPU driver static analysis expert"
+
+  framework_knowledge: |
+    ## Mali/kbase Driver Framework Checklist
+
+    ### Mali driver file operation lifecycle
+    1. **kbase_open** -> creates kbase_file, initializes context
+    2. **kbase_ioctl/kbase_mmap** -> normal operations via kbase_api_* handlers
+    3. **kbase_release** -> cleanup kbase_file and context (final stage)
+
+    Important: kbase_context is valid from open through release.
+
+    ### kbase_api_* handlers
+    - Each KBASE_IOCTL_* maps to a kbase_api_* function
+    - Handlers receive (struct kbase_file *, struct kbase_ioctl_* *)
+    - Must validate user input before use
+
+    ### Memory management
+    - kbase_va_region: GPU virtual address region tracking
+    - kbase_mem_alloc: allocate GPU-accessible memory
+    - kbase_gpu_vm_lock: protects GPU virtual memory operations
+    - Reference counting via kbase_*_get/_put patterns
+
+    ### CSF (Command Stream Frontend) - newer Mali GPUs
+    - kbase_queue: user command queue
+    - kbase_queue_group: group of queues scheduled together
+    - kbase_csf_scheduler: manages queue group scheduling
+    - Strict lifecycle: create -> bind -> execute -> unbind -> destroy
+
+    ### Locking hierarchy
+    - kbase_device->pm.lock
+    - kbase_csf_scheduler->lock
+    - kbase_gpu_vm_lock (per context)
+    - kbase_hwaccess_lock (hardware access serialization)
+
+  false_positive_examples:
+    - title: "Context cleanup in release"
+      code: |
+        static int kbase_release(struct inode *inode, struct file *filp)
+        {
+            struct kbase_file *kfile = filp->private_data;
+            kbase_file_delete(kfile);
+            return 0;
+        }
+      wrong_analysis: "kfile pointer should be NULLed to avoid dangling pointer"
+      correct_analysis: "release() is the final stage; file struct is freed by kernel afterward"
+      key_insight: "verify when the framework guarantees no further access"
+
+    - title: "GPU VM lock pattern"
+      code: |
+        int kbase_mem_query(struct kbase_context *kctx, ...)
+        {
+            kbase_gpu_vm_lock(kctx);
+            reg = kbase_region_tracker_find_region(kctx, gpu_addr);
+            if (!reg) {
+                kbase_gpu_vm_unlock(kctx);
+                return -EINVAL;
+            }
+            // ... use reg ...
+            kbase_gpu_vm_unlock(kctx);
+            return 0;
+        }
+      wrong_analysis: "early return might skip unlocking"
+      correct_analysis: "all paths release the lock"
+      key_insight: "track lock symmetry on every path"
+
+    - title: "Reference counting for regions"
+      code: |
+        struct kbase_va_region *reg = kbase_region_lookup(...);
+        if (reg) {
+            kbase_va_region_get(reg);  // increment refcount
+            // ... use reg ...
+            kbase_va_region_put(reg);  // decrement refcount
+        }
+      wrong_analysis: "region might be freed while in use"
+      correct_analysis: "reference counting protects the region lifetime"
+      key_insight: "verify refcount incremented before use, decremented after"
