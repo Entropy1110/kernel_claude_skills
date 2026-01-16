@@ -1,4 +1,4 @@
-# Mali Static AI
+# Claude Skills for Kernel vulnerability analysis
 
 Static vulnerability analysis pipeline for Linux kernel drivers and C/C++ applications, designed to work with Claude Code.
 
